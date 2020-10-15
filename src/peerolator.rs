@@ -20,14 +20,19 @@ pub struct User {
 
 type Users = Arc<RwLock<HashMap<String, User>>>;
 
-#[tokio::main]
-async fn main() {
+fn main() -> anyhow::Result<()> {
+    // TODO: Add command-line parameters
     pretty_env_logger::init();
 
-    // TODO: Configure tokio ?
+    tokio::runtime::Builder::new()
+        .threaded_scheduler()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async { run().await })
+}
 
-    // TODO: Add command-line parameters
-
+async fn run() -> anyhow::Result<()> {
     let server_users = Users::default();
     let client_users = Users::default();
 
@@ -72,13 +77,15 @@ async fn main() {
     trace!("Starting the warp server...");
     // FIXME: Disable HTTP Keep-Alive (no reason for a client to make more than one request, reduces DoS)
     warp::serve(routes).run(([127, 0, 0, 1], 8000)).await;
+
+    Ok(())
 }
 
 async fn server_connected(ws: WebSocket, host: String, server_users: Users, client_users: Users) {
     info!("New server connection at {}", host);
 
     // FIXME: Debug !!!!!!!!!!!!
-    let id = String::from("1234567890");//generate_user_id();
+    let id = String::from("1234567890"); //generate_user_id();
     debug!("server id: {}", id);
 
     // Split the socket into a sender and receive of messages.
@@ -137,6 +144,7 @@ async fn server_connected(ws: WebSocket, host: String, server_users: Users, clie
             Ok(msg) => msg,
             Err(e) => {
                 error!("message validation error(uid={}): {}", id.clone(), e);
+                error!("{:?}", msg);
                 break;
             }
         };
@@ -278,6 +286,8 @@ async fn client_connected(ws: WebSocket, params: String, server_users: Users, cl
     // user_ws_rx stream will keep processing as long as the user stays
     // connected. Once they disconnect, then...
     user_disconnected(id, &users2).await;
+
+    // FIXME: Send a message to the peer to let it know
 }
 
 async fn send_message(sender_id: String, msg_type: String, msg: serde_json::Value, peer: &User) {
