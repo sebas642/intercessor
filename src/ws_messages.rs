@@ -19,7 +19,8 @@ pub struct PeerMessage {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MessageContent {
     Hello(HelloMessage),
-    ClientConnected(ClientConnectedMessage),
+    PeerJoined(PeerJoinedMessage),
+    PeerGone(PeerGoneMessage),
     #[serde(other)]
     Other
 }
@@ -31,7 +32,12 @@ pub struct HelloMessage {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct ClientConnectedMessage {
+pub struct PeerJoinedMessage {
+    pub id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct PeerGoneMessage {
     pub id: String,
 }
 

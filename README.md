@@ -36,12 +36,12 @@ Messages sent or relayed from the server have the following format:
 Where:
 
 * PEER_ID (string): The unique identifier of the peer.
-* MESSAGE_TYPE (string): The type of content of the message. Either 'HELLO', 'CLIENT_CONNECTION', or application specific.
-* MESSAGE (Object): The actual message content (HELLO, CLIENT_CONNECTION, or other message).
+* MESSAGE_TYPE (string): The type of content of the message. Either 'HELLO', 'PEER_JOINED', "PEER_GONE", or application specific.
+* MESSAGE (Object): The actual message content (HELLO, PEER_JOINED, PEER_GONE, or other message).
 
 ### HELLO message
 
-When a client connects to the server, it will receive a HELLO message with the following content:
+When a client or a server connects to the peerolator, it will receive a HELLO message with the following content:
 
 ```json
 {
@@ -55,7 +55,9 @@ Where:
 * USER_ID (string): The unique ID attributed to the user.
 * SERVER_INFO (string): Application specific information configured on the server.
 
-### CLIENT_CONNECTION message
+### PEER_JOINED message
+
+This message is sent to servers when a new client connects using the server ID.
 
 ```json
 {
@@ -67,6 +69,20 @@ Where:
 
 * USER_ID (string): The unique ID of the new client.
 
+### PEER_GONE message
+
+This message is sent to client and servers when their peer leaves.
+
+```json
+{
+    "id": USER_ID
+}
+```
+
+Where:
+
+* USER_ID (string): The unique ID of the peer that has left.
+
 ## Future
 
 * Command-line & file configuration
@@ -75,6 +91,6 @@ Where:
 * Passphrase for server logins
 * Replace UUID with something stronger and base64 encoded
 * Client timeout
-* Apply optional (configurable) schema validation on messages sent by the client
+* Apply optional (configurable) schema validation on messages sent by the clients.
 * Valgrind
 * Docker image

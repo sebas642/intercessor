@@ -18,6 +18,8 @@ pub struct User {
     pub sender: mpsc::UnboundedSender<std::result::Result<Message, warp::Error>>,
 }
 
+const PEEROLATOR_ID: &str = "0";
+
 type Users = Arc<RwLock<HashMap<String, User>>>;
 
 fn main() -> anyhow::Result<()> {
@@ -84,15 +86,14 @@ async fn run() -> anyhow::Result<()> {
 async fn server_connected(ws: WebSocket, host: String, server_users: Users, client_users: Users) {
     info!("New server connection at {}", host);
 
-    // FIXME: Debug !!!!!!!!!!!!
-    let id = String::from("1234567890"); //generate_user_id();
+    let id = generate_user_id();
     debug!("server id: {}", id);
 
     // Split the socket into a sender and receive of messages.
     let (user_ws_tx, mut user_ws_rx) = ws.split();
 
     // Use an unbounded channel to handle buffering and flushing of messages to the websocket...
-    // FIXME: Bound channel
+    // FIXME: Use bounded channel to avoid memory overuse. There's no reason to queue too many messages here.
     let (tx, rx) = mpsc::unbounded_channel();
     tokio::task::spawn(rx.forward(user_ws_tx).map(|result| {
         if let Err(e) = result {
@@ -109,7 +110,7 @@ async fn server_connected(ws: WebSocket, host: String, server_users: Users, clie
     {
         let hello = HelloMessage { id: id.clone() };
         send_message(
-            String::from("0"),
+            String::from(PEEROLATOR_ID),
             String::from("HELLO"),
             serde_json::to_value(hello).unwrap(),
             &user,
@@ -123,7 +124,7 @@ async fn server_connected(ws: WebSocket, host: String, server_users: Users, clie
     // Make an extra clone to give to our disconnection handler...
     let users2 = server_users.clone();
 
-    // Every time the user sends a message, send it to the peer
+    // Every time the server sends a message, send it to the peer
     while let Some(result) = user_ws_rx.next().await {
         let msg = match result {
             Ok(msg) => msg,
@@ -170,9 +171,22 @@ async fn server_connected(ws: WebSocket, host: String, server_users: Users, clie
         }
     }
 
-    // user_ws_rx stream will keep processing as long as the user stays
-    // connected. Once they disconnect, then...
-    user_disconnected(id, &users2).await;
+    // user_ws_rx stream will keep processing as long as the server stays
+    // connected. Once it disconnects, then...
+    user_disconnected(id.clone(), &users2).await;
+
+    // Send a PEER_GONE message to all the peers to let them know
+    let client_read = client_users.read().await;
+    for peer in client_read.values() {
+        let gone = PeerGoneMessage { id: id.clone() };
+        send_message(
+            String::from(PEEROLATOR_ID),
+            String::from("PEER_GONE"),
+            serde_json::to_value(gone).unwrap(),
+            peer,
+        )
+        .await;
+    }
 }
 
 async fn client_connected(ws: WebSocket, params: String, server_users: Users, client_users: Users) {
@@ -209,7 +223,7 @@ async fn client_connected(ws: WebSocket, params: String, server_users: Users, cl
     {
         let hello = HelloMessage { id: id.clone() };
         send_message(
-            String::from("0"),
+            String::from(PEEROLATOR_ID),
             String::from("HELLO"),
             serde_json::to_value(hello).unwrap(),
             &user,
@@ -226,10 +240,10 @@ async fn client_connected(ws: WebSocket, params: String, server_users: Users, cl
     // Send a message to the server indicating a new client
     {
         let server_read = server_users.read().await;
-        let client_msg = ClientConnectedMessage { id: id.clone() };
+        let client_msg = PeerJoinedMessage { id: id.clone() };
         send_message(
-            String::from("0"),
-            String::from("CLIENT_CONNECTION"),
+            String::from(PEEROLATOR_ID),
+            String::from("PEER_JOINED"),
             serde_json::to_value(client_msg).unwrap(),
             server_read.get(&params).unwrap(),
         )
@@ -283,11 +297,21 @@ async fn client_connected(ws: WebSocket, params: String, server_users: Users, cl
         }
     }
 
-    // user_ws_rx stream will keep processing as long as the user stays
-    // connected. Once they disconnect, then...
-    user_disconnected(id, &users2).await;
+    // user_ws_rx stream will keep processing as long as the peer stays
+    // connected. Once it disconnects, then...
+    user_disconnected(id.clone(), &users2).await;
 
-    // FIXME: Send a message to the peer to let it know
+    // Send a PEER_GONE message to the server to let it know
+    {
+        let gone = PeerGoneMessage { id: id.clone() };
+        send_message(
+            String::from(PEEROLATOR_ID),
+            String::from("PEER_GONE"),
+            serde_json::to_value(gone).unwrap(),
+            server_users.read().await.get(&params).unwrap(),
+        )
+        .await;
+    }
 }
 
 async fn send_message(sender_id: String, msg_type: String, msg: serde_json::Value, peer: &User) {
