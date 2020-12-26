@@ -13,6 +13,7 @@ use uuid::Uuid;
 use warp::ws::{Message, WebSocket};
 use warp::Filter;
 
+// FIXME: Add a ServerUser that contains a user and a list of connected clients.
 pub struct User {
     pub id: String,
     pub sender: mpsc::UnboundedSender<std::result::Result<Message, warp::Error>>,
@@ -36,6 +37,8 @@ fn main() -> anyhow::Result<()> {
 
 async fn run() -> anyhow::Result<()> {
     let server_users = Users::default();
+    // FIXME: The client list should be part of the server info.
+    //        No need to have a centralized list.
     let client_users = Users::default();
 
     // FIXME: Validate user/password if enabled
@@ -86,7 +89,7 @@ async fn run() -> anyhow::Result<()> {
 async fn server_connected(ws: WebSocket, host: String, server_users: Users, client_users: Users) {
     info!("New server connection at {}", host);
 
-    let id = generate_user_id();
+    let id = generate_server_id();
     debug!("server id: {}", id);
 
     // Split the socket into a sender and receive of messages.
@@ -118,7 +121,7 @@ async fn server_connected(ws: WebSocket, host: String, server_users: Users, clie
         .await;
     }
 
-    // Save the sender in our list of connected servers.
+    // Save the server in our list of connected servers.
     server_users.write().await.insert(id.clone(), user);
 
     // Make an extra clone to give to our disconnection handler...
@@ -161,13 +164,18 @@ async fn server_connected(ws: WebSocket, host: String, server_users: Users, clie
 
         {
             let client_read = client_users.read().await;
-            send_message(
-                id.clone(),
-                deserialized.msg_type,
-                deserialized.message,
-                client_read.get(&deserialized.to).unwrap(),
-            )
-            .await;
+            match client_read.get(&deserialized.to) {
+                None => {} // Drop the message if the client has disconnected
+                Some(client) => {
+                    send_message(
+                        id.clone(),
+                        deserialized.msg_type,
+                        deserialized.message,
+                        client,
+                    )
+                    .await;
+                }
+            }
         }
     }
 
@@ -200,7 +208,7 @@ async fn client_connected(ws: WebSocket, params: String, server_users: Users, cl
         return;
     };
 
-    let id = generate_user_id();
+    let id = generate_client_id();
     debug!("client id: {}", id);
 
     // Split the socket into a sender and receiver of messages.
@@ -240,14 +248,19 @@ async fn client_connected(ws: WebSocket, params: String, server_users: Users, cl
     // Send a message to the server indicating a new client
     {
         let server_read = server_users.read().await;
-        let client_msg = PeerJoinedMessage { id: id.clone() };
-        send_message(
-            String::from(PEEROLATOR_ID),
-            String::from("PEER_JOINED"),
-            serde_json::to_value(client_msg).unwrap(),
-            server_read.get(&params).unwrap(),
-        )
-        .await;
+        match server_read.get(&params) {
+            None => {}
+            Some(server) => {
+                let client_msg = PeerJoinedMessage { id: id.clone() };
+                send_message(
+                    String::from(PEEROLATOR_ID),
+                    String::from("PEER_JOINED"),
+                    serde_json::to_value(client_msg).unwrap(),
+                    server,
+                )
+                .await;
+            }
+        }
     }
 
     // Every time the user sends a message, send it to the peer
@@ -287,13 +300,18 @@ async fn client_connected(ws: WebSocket, params: String, server_users: Users, cl
 
         {
             let server_read = server_users.read().await;
-            send_message(
-                id.clone(),
-                deserialized.msg_type,
-                deserialized.message,
-                server_read.get(&params).unwrap(),
-            )
-            .await;
+            match server_read.get(&params) {
+                None => {} // Drop the message if the server just left
+                Some(server) => {
+                    send_message(
+                        id.clone(),
+                        deserialized.msg_type,
+                        deserialized.message,
+                        server,
+                    )
+                    .await;
+                }
+            }
         }
     }
 
@@ -303,14 +321,20 @@ async fn client_connected(ws: WebSocket, params: String, server_users: Users, cl
 
     // Send a PEER_GONE message to the server to let it know
     {
-        let gone = PeerGoneMessage { id: id.clone() };
-        send_message(
-            String::from(PEEROLATOR_ID),
-            String::from("PEER_GONE"),
-            serde_json::to_value(gone).unwrap(),
-            server_users.read().await.get(&params).unwrap(),
-        )
-        .await;
+        let server_read = server_users.read().await;
+        match server_read.get(&params) {
+            Some(server) => {
+                let gone = PeerGoneMessage { id: id.clone() };
+                send_message(
+                    String::from(PEEROLATOR_ID),
+                    String::from("PEER_GONE"),
+                    serde_json::to_value(gone).unwrap(),
+                    server,
+                )
+                .await;
+            }
+            None => {}
+        }
     }
 }
 
@@ -345,7 +369,21 @@ fn with_users(users: Users) -> impl Filter<Extract = (Users,), Error = Infallibl
 }
 
 /// Return a URL-friendly string that contains a new unique idenfitier
-fn generate_user_id() -> String {
+fn generate_server_id() -> String {
+    // FIXME: For debugging only
+    //String::from("1234567890")
+
+    // TODO: Add option to generate human-readable string as a ID
+    generate_id()
+}
+
+/// Return a string that contains a new unique idenfitier
+fn generate_client_id() -> String {
+    generate_id()
+}
+
+/// Return a URL-friendly string that contains a new unique idenfitier
+fn generate_id() -> String {
     // FIXME: Improve the quality of the secret
     Uuid::new_v4().to_simple().to_string()
 }
