@@ -13,15 +13,19 @@ use uuid::Uuid;
 use warp::ws::{Message, WebSocket};
 use warp::Filter;
 
-// FIXME: Add a ServerUser that contains a user and a list of connected clients.
 pub struct User {
     pub id: String,
     pub sender: mpsc::UnboundedSender<std::result::Result<Message, warp::Error>>,
 }
+type Users = Arc<RwLock<HashMap<String, User>>>;
+
+pub struct ServerUser {
+    pub user: User,
+    pub peers: Users,
+}
+type ServerUsers = Arc<RwLock<HashMap<String, ServerUser>>>;
 
 const PEEROLATOR_ID: &str = "0";
-
-type Users = Arc<RwLock<HashMap<String, User>>>;
 
 fn main() -> anyhow::Result<()> {
     // TODO: Add command-line parameters
@@ -36,10 +40,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn run() -> anyhow::Result<()> {
-    let server_users = Users::default();
-    // FIXME: The client list should be part of the server info.
-    //        No need to have a centralized list.
-    let client_users = Users::default();
+    let server_users = ServerUsers::default();
 
     // FIXME: Validate user/password if enabled
     let server_route = warp::path("server")
@@ -51,28 +52,18 @@ async fn run() -> anyhow::Result<()> {
                 .unify(),
         )
         .and(with_users(server_users.clone()))
-        .and(with_users(client_users.clone()))
-        .map(
-            |ws: warp::ws::Ws, host: String, server_users, client_users| {
-                ws.on_upgrade(move |socket| {
-                    server_connected(socket, host, server_users, client_users)
-                })
-            },
-        );
+        .map(|ws: warp::ws::Ws, host: String, server_users| {
+            ws.on_upgrade(move |socket| server_connected(socket, host, server_users))
+        });
 
     let client_route = warp::path("client")
         .and(warp::ws())
         .and(warp::path::param())
         .and(warp::path::end())
         .and(with_users(server_users.clone()))
-        .and(with_users(client_users.clone()))
-        .map(
-            |ws: warp::ws::Ws, params: String, server_users, client_users| {
-                ws.on_upgrade(move |socket| {
-                    client_connected(socket, params, server_users, client_users)
-                })
-            },
-        );
+        .map(|ws: warp::ws::Ws, params: String, server_users| {
+            ws.on_upgrade(move |socket| client_connected(socket, params, server_users))
+        });
 
     let routes = server_route
         .or(client_route)
@@ -86,7 +77,7 @@ async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn server_connected(ws: WebSocket, host: String, server_users: Users, client_users: Users) {
+async fn server_connected(ws: WebSocket, host: String, server_users: ServerUsers) {
     info!("New server connection at {}", host);
 
     let id = generate_server_id();
@@ -121,11 +112,14 @@ async fn server_connected(ws: WebSocket, host: String, server_users: Users, clie
         .await;
     }
 
-    // Save the server in our list of connected servers.
-    server_users.write().await.insert(id.clone(), user);
-
-    // Make an extra clone to give to our disconnection handler...
-    let users2 = server_users.clone();
+    {
+        // Save the server in our list of connected servers.
+        let server = ServerUser {
+            user: user,
+            peers: Users::default(),
+        };
+        server_users.write().await.insert(id.clone(), server);
+    }
 
     // Every time the server sends a message, send it to the peer
     while let Some(result) = user_ws_rx.next().await {
@@ -140,76 +134,92 @@ async fn server_connected(ws: WebSocket, host: String, server_users: Users, clie
         let msg = if let Ok(s) = msg.to_str() {
             s
         } else {
-            error!("invalid message type");
+            debug!("invalid message type");
             break;
         };
 
         let deserialized: PeerMessage = match serde_json::from_str(&msg) {
             Ok(msg) => msg,
             Err(e) => {
-                error!("message validation error(uid={}): {}", id.clone(), e);
-                error!("{:?}", msg);
+                debug!("message validation error(uid={}): {}", id.clone(), e);
+                debug!("{:?}", msg);
                 break;
             }
         };
 
         if deserialized.from != id {
-            error!("invalid message source");
+            debug!("invalid message source");
             break;
         }
 
-        if !client_users.read().await.contains_key(&deserialized.to) {
-            error!("invalid message destination");
-        };
-
         {
-            let client_read = client_users.read().await;
-            match client_read.get(&deserialized.to) {
-                None => {} // Drop the message if the client has disconnected
-                Some(client) => {
+            let server_read = server_users.read().await;
+            match server_read.get(&id) {
+                None => {}
+                Some(server) => {
+                    let client_read = server.peers.read().await;
+                    match client_read.get(&deserialized.to) {
+                        None => {
+                            info!("Received a message for an unknown client");
+                        } // Drop the message if the client has disconnected
+                        Some(client) => {
+                            send_message(
+                                id.clone(),
+                                deserialized.msg_type,
+                                deserialized.message,
+                                client,
+                            )
+                            .await;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    {
+        // user_ws_rx stream will keep processing as long as the server stays
+        // connected. Once it disconnects, then...
+        debug!("server disconnected: {}", &id);
+        let mut server_write = server_users.write().await;
+        match server_write.remove(&id) {
+            None => {}
+            Some(server) => {
+                drop(server_write);
+                // Send a PEER_GONE message to all the peers to let them know
+                let client_read = server.peers.read().await;
+                for peer in client_read.values() {
+                    let gone = PeerGoneMessage {
+                        id: peer.id.clone(),
+                    };
                     send_message(
-                        id.clone(),
-                        deserialized.msg_type,
-                        deserialized.message,
-                        client,
+                        String::from(PEEROLATOR_ID),
+                        String::from("PEER_GONE"),
+                        serde_json::to_value(gone).unwrap(),
+                        peer,
                     )
                     .await;
                 }
             }
         }
     }
-
-    // user_ws_rx stream will keep processing as long as the server stays
-    // connected. Once it disconnects, then...
-    user_disconnected(id.clone(), &users2).await;
-
-    // Send a PEER_GONE message to all the peers to let them know
-    let client_read = client_users.read().await;
-    for peer in client_read.values() {
-        let gone = PeerGoneMessage { id: id.clone() };
-        send_message(
-            String::from(PEEROLATOR_ID),
-            String::from("PEER_GONE"),
-            serde_json::to_value(gone).unwrap(),
-            peer,
-        )
-        .await;
-    }
 }
 
-async fn client_connected(ws: WebSocket, params: String, server_users: Users, client_users: Users) {
-    info!("New client connection with params: {}", &params);
+async fn client_connected(ws: WebSocket, server_id: String, server_users: ServerUsers) {
+    info!("New client connection with server id: {}", &server_id);
 
     // The client must request an existing server. If not, close the connection.
     // FIXME: This could probably be a filter.
-    if !server_users.read().await.contains_key(&params) {
-        warn!("Unknown server id: {}", params);
-        let _ = ws.close().await;
-        return;
-    };
+    {
+        if !server_users.read().await.contains_key(&server_id) {
+            debug!("Unknown server id: {}", &server_id);
+            let _ = ws.close().await;
+            return;
+        };
+    }
 
     let id = generate_client_id();
-    debug!("client id: {}", id);
+    debug!("New client id: {}", &id);
 
     // Split the socket into a sender and receiver of messages.
     let (user_ws_tx, mut user_ws_rx) = ws.split();
@@ -239,16 +249,21 @@ async fn client_connected(ws: WebSocket, params: String, server_users: Users, cl
         .await;
     }
 
-    // Save the user in our list of connected clients.
-    client_users.write().await.insert(id.clone(), user);
-
-    // Make an extra clone to give to our disconnection handler...
-    let users2 = client_users.clone();
+    // Save the user in the server list of connected clients.
+    {
+        let server_read = server_users.read().await;
+        match server_read.get(&server_id) {
+            None => {} // FIXME: Server already disconnected. We should move this code up to avoid thie situation
+            Some(server_user) => {
+                server_user.peers.write().await.insert(id.clone(), user);
+            }
+        }
+    }
 
     // Send a message to the server indicating a new client
     {
         let server_read = server_users.read().await;
-        match server_read.get(&params) {
+        match server_read.get(&server_id) {
             None => {}
             Some(server) => {
                 let client_msg = PeerJoinedMessage { id: id.clone() };
@@ -256,7 +271,7 @@ async fn client_connected(ws: WebSocket, params: String, server_users: Users, cl
                     String::from(PEEROLATOR_ID),
                     String::from("PEER_JOINED"),
                     serde_json::to_value(client_msg).unwrap(),
-                    server,
+                    &server.user,
                 )
                 .await;
             }
@@ -293,21 +308,21 @@ async fn client_connected(ws: WebSocket, params: String, server_users: Users, cl
             error!("invalid message source");
             break;
         }
-        if deserialized.to != params {
+        if deserialized.to != server_id {
             error!("invalid message destination");
             break;
         }
 
         {
             let server_read = server_users.read().await;
-            match server_read.get(&params) {
+            match server_read.get(&server_id) {
                 None => {} // Drop the message if the server just left
                 Some(server) => {
                     send_message(
                         id.clone(),
                         deserialized.msg_type,
                         deserialized.message,
-                        server,
+                        &server.user,
                     )
                     .await;
                 }
@@ -315,21 +330,29 @@ async fn client_connected(ws: WebSocket, params: String, server_users: Users, cl
         }
     }
 
-    // user_ws_rx stream will keep processing as long as the peer stays
-    // connected. Once it disconnects, then...
-    user_disconnected(id.clone(), &users2).await;
+    {
+        // user_ws_rx stream will keep processing as long as the peer stays
+        // connected. Once it disconnects, then...
+        let server_read = server_users.read().await;
+        match server_read.get(&server_id) {
+            None => {} // FIXME: Server already disconnected. We should move this code up to avoid thie situation
+            Some(server_user) => {
+                client_disconnected(id.clone(), &server_user.peers).await;
+            }
+        }
+    }
 
     // Send a PEER_GONE message to the server to let it know
     {
         let server_read = server_users.read().await;
-        match server_read.get(&params) {
+        match server_read.get(&server_id) {
             Some(server) => {
                 let gone = PeerGoneMessage { id: id.clone() };
                 send_message(
                     String::from(PEEROLATOR_ID),
                     String::from("PEER_GONE"),
                     serde_json::to_value(gone).unwrap(),
-                    server,
+                    &server.user,
                 )
                 .await;
             }
@@ -351,21 +374,23 @@ async fn send_message(sender_id: String, msg_type: String, msg: serde_json::Valu
     let serialized = serde_json::to_string(&peer_msg).unwrap();
 
     if let Err(_disconnected) = peer.sender.send(Ok(Message::text(serialized))) {
-        // The tx is disconnected, our `user_disconnected` code
+        // The tx is disconnected, our `client_disconnected` code
         // should be happening in another task, nothing more to
         // do here.
     }
 }
 
-async fn user_disconnected(my_id: String, users: &Users) {
-    info!("user disconnected: {}", my_id);
+async fn client_disconnected(my_id: String, users: &Users) {
+    debug!("client disconnected: {}", my_id);
 
     // Stream closed up, so remove from the user list
     users.write().await.remove(&my_id);
 }
 
-fn with_users(users: Users) -> impl Filter<Extract = (Users,), Error = Infallible> + Clone {
-    warp::any().map(move || users.clone())
+fn with_users(
+    server_users: ServerUsers,
+) -> impl Filter<Extract = (ServerUsers,), Error = Infallible> + Clone {
+    warp::any().map(move || server_users.clone())
 }
 
 /// Return a URL-friendly string that contains a new unique idenfitier
