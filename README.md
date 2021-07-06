@@ -1,10 +1,10 @@
 # Peerolator
 
-A peer messaging service.
+## Peer messaging service
 
-A relay server to exchange messages between two peers. Peerolator is initially designed as a signaling server for WebRTC (similar to SignalMaster).
+The Peerolator is a relay server to exchange messages between two peers. Peerolator is initially designed as a signaling server for WebRTC. It is similar to SignalMaster.
 
-A *server* first connects to the Peerolator and receives back a unique token that can be used by the *client(s)* to connect to the Peerolator. Each message is sent to a unique peer.
+A *server* first connects to the Peerolator (the *relay*), and receives back a unique token that can be used by the *client(s)* to connect to the Peerolator. 
 
 * Server connection: wss://www.peerolator.com/server
 * Client connection: wss://www.peerolator.com/client/SERVER_ID
@@ -13,7 +13,7 @@ A *server* first connects to the Peerolator and receives back a unique token tha
 
 ### Messsage Format
 
-Clients must send messages in the following format:
+Peers must send messages in the following format:
 
 ```json
 {
@@ -23,7 +23,7 @@ Clients must send messages in the following format:
 }
 ```
 
-Messages sent or relayed from the server have the following format:
+Messages sent from the relay have the following format:
 
 ```json
 {
@@ -41,7 +41,7 @@ Where:
 
 ### HELLO message
 
-When a client or a server connects to the peerolator, it will receive a HELLO message with the following content:
+When a peer connects to the Peerolator, it will receive a HELLO message with the following content:
 
 ```json
 {
@@ -52,12 +52,12 @@ When a client or a server connects to the peerolator, it will receive a HELLO me
 
 Where:
 
-* USER_ID (string): The unique ID attributed to the user.
-* SERVER_INFO (string): Application specific information configured on the server.
+* USER_ID (string): The unique ID attributed to the peer.
+* SERVER_INFO (string): Optional application specific information configured on the server.
 
 ### PEER_JOINED message
 
-This message is sent to servers when a new client connects using the server ID.
+This message is sent to a server when a new client connects using its server ID.
 
 ```json
 {
@@ -71,7 +71,7 @@ Where:
 
 ### PEER_GONE message
 
-This message is sent to client and servers when their peer leaves.
+This message is sent to a peer when their peer leaves.
 
 ```json
 {
@@ -85,12 +85,14 @@ Where:
 
 ## Future
 
+This project is a work in progress. Future work includes tht following:
+
+* SSL Support
 * Command-line & file configuration
 * Server extra info in HELLO message
-* SSL Support
 * Passphrase for server logins
-* Replace UUID with something stronger and base64 encoded
-* Client timeout
-* Apply optional (configurable) schema validation on messages sent by the clients.
+* Replace UUID with something stronger and/or easier to remember
+* Client timeouts
+* Apply optional (configurable) schema validation on messages sent by the peers
 * Valgrind
 * Docker image
