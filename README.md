@@ -1,13 +1,19 @@
 # Intercessor
 
+[![CI](https://github.com/sebas642/intercessor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sebas642/intercessor/actions/workflows/ci.yml)
+
 ## Peer Messaging Service
 
 Intercessor is a relay server to exchange messages between two peers. Intercessor is initially designed as a signaling server for WebRTC. It is similar to SignalMaster.
 
 A _server_ first connects to the Intercessor (the _relay_), and receives back a unique token that can be used by the _client(s)_ to connect to the Intercessor.
 
-- Server connection: wss://www.somehost.com/server
-- Client connection: wss://www.somehost.com/client/SERVER_ID
+- Server connection: wss://somehost/server
+- Client connection: wss://somehost/client/SERVER_ID
+
+## Developing
+
+To submit changes for review, push them to a branch in a fork and submit a pull request to merge that branch into main.
 
 ## Logging
 
