@@ -115,7 +115,7 @@ async fn server_connected(ws: WebSocket, host: String, server_users: ServerUsers
     {
         // Save the server in our list of connected servers.
         let server = ServerUser {
-            user: user,
+            user,
             peers: Users::default(),
         };
         server_users.write().await.insert(id.clone(), server);
@@ -138,7 +138,7 @@ async fn server_connected(ws: WebSocket, host: String, server_users: ServerUsers
             break;
         };
 
-        let deserialized: PeerMessage = match serde_json::from_str(&msg) {
+        let deserialized: PeerMessage = match serde_json::from_str(msg) {
             Ok(msg) => msg,
             Err(e) => {
                 debug!("message validation error(uid={}): {}", id.clone(), e);
@@ -296,7 +296,7 @@ async fn client_connected(ws: WebSocket, server_id: String, server_users: Server
             break;
         };
 
-        let deserialized: PeerMessage = match serde_json::from_str(&msg) {
+        let deserialized: PeerMessage = match serde_json::from_str(msg) {
             Ok(msg) => msg,
             Err(e) => {
                 error!("message validation error(uid={}): {}", id.clone(), e);
@@ -345,18 +345,15 @@ async fn client_connected(ws: WebSocket, server_id: String, server_users: Server
     // Send a PEER_GONE message to the server to let it know
     {
         let server_read = server_users.read().await;
-        match server_read.get(&server_id) {
-            Some(server) => {
-                let gone = PeerGoneMessage { id: id.clone() };
-                send_message(
-                    String::from(INTERCESSOR_ID),
-                    String::from("PEER_GONE"),
-                    serde_json::to_value(gone).unwrap(),
-                    &server.user,
-                )
-                .await;
-            }
-            None => {}
+        if let Some(server) = server_read.get(&server_id) {
+            let gone = PeerGoneMessage { id: id.clone() };
+            send_message(
+                String::from(INTERCESSOR_ID),
+                String::from("PEER_GONE"),
+                serde_json::to_value(gone).unwrap(),
+                &server.user,
+            )
+            .await;
         }
     }
 }
@@ -410,5 +407,8 @@ fn generate_client_id() -> String {
 /// Return a URL-friendly string that contains a new unique idenfitier
 fn generate_id() -> String {
     // FIXME: Improve the quality of the secret
-    Uuid::new_v4().hyphenated().encode_lower(&mut Uuid::encode_buffer()).to_string()
+    Uuid::new_v4()
+        .hyphenated()
+        .encode_lower(&mut Uuid::encode_buffer())
+        .to_string()
 }
