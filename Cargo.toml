@@ -1,11 +1,11 @@
 [package]
-name = "peerolator"
+name = "intercessor"
 version = "0.1.0"
-description = "Exchange messages with a peer at warp speed"
+description = "Exchange messages between peers"
 authors = ["Sébastien Côté <sebas642@gmail.com>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/sebas642/peerolator"
+repository = "https://github.com/sebas642/intercessor"
 categories = ["web-programming::http-server"]
 keywords = ["warp", "server", "peer", "webrtc"]
 edition = "2018"
@@ -15,12 +15,12 @@ anyhow = "1.0"
 log = "0.4"
 futures = { version = "0.3", default-features = false }
 pretty_env_logger = "0.4"
-uuid = { version = "0.8", features = ["serde", "v4"] }
+uuid = { version = "1.2", features = ["serde", "v4"] }
 serde = {version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "0.2", features = ["macros", "sync", "rt-threaded"] }
 warp = "0.2"
 
 [[bin]]
-name = "peerolator"
-path = "src/peerolator.rs"
+name = "intercessor"
+path = "src/intercessor.rs"

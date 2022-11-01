@@ -25,7 +25,7 @@ pub struct ServerUser {
 }
 type ServerUsers = Arc<RwLock<HashMap<String, ServerUser>>>;
 
-const PEEROLATOR_ID: &str = "0";
+const INTERCESSOR_ID: &str = "0";
 
 fn main() -> anyhow::Result<()> {
     // TODO: Add command-line parameters
@@ -104,7 +104,7 @@ async fn server_connected(ws: WebSocket, host: String, server_users: ServerUsers
     {
         let hello = HelloMessage { id: id.clone() };
         send_message(
-            String::from(PEEROLATOR_ID),
+            String::from(INTERCESSOR_ID),
             String::from("HELLO"),
             serde_json::to_value(hello).unwrap(),
             &user,
@@ -193,7 +193,7 @@ async fn server_connected(ws: WebSocket, host: String, server_users: ServerUsers
                         id: peer.id.clone(),
                     };
                     send_message(
-                        String::from(PEEROLATOR_ID),
+                        String::from(INTERCESSOR_ID),
                         String::from("PEER_GONE"),
                         serde_json::to_value(gone).unwrap(),
                         peer,
@@ -241,7 +241,7 @@ async fn client_connected(ws: WebSocket, server_id: String, server_users: Server
     {
         let hello = HelloMessage { id: id.clone() };
         send_message(
-            String::from(PEEROLATOR_ID),
+            String::from(INTERCESSOR_ID),
             String::from("HELLO"),
             serde_json::to_value(hello).unwrap(),
             &user,
@@ -268,7 +268,7 @@ async fn client_connected(ws: WebSocket, server_id: String, server_users: Server
             Some(server) => {
                 let client_msg = PeerJoinedMessage { id: id.clone() };
                 send_message(
-                    String::from(PEEROLATOR_ID),
+                    String::from(INTERCESSOR_ID),
                     String::from("PEER_JOINED"),
                     serde_json::to_value(client_msg).unwrap(),
                     &server.user,
@@ -349,7 +349,7 @@ async fn client_connected(ws: WebSocket, server_id: String, server_users: Server
             Some(server) => {
                 let gone = PeerGoneMessage { id: id.clone() };
                 send_message(
-                    String::from(PEEROLATOR_ID),
+                    String::from(INTERCESSOR_ID),
                     String::from("PEER_GONE"),
                     serde_json::to_value(gone).unwrap(),
                     &server.user,
@@ -410,5 +410,5 @@ fn generate_client_id() -> String {
 /// Return a URL-friendly string that contains a new unique idenfitier
 fn generate_id() -> String {
     // FIXME: Improve the quality of the secret
-    Uuid::new_v4().to_simple().to_string()
+    Uuid::new_v4().hyphenated().encode_lower(&mut Uuid::encode_buffer()).to_string()
 }

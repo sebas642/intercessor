@@ -1,13 +1,21 @@
-# Peerolator
+# Intercessor
 
-## Peer messaging service
+## Peer Messaging Service
 
-The Peerolator is a relay server to exchange messages between two peers. Peerolator is initially designed as a signaling server for WebRTC. It is similar to SignalMaster.
+Intercessor is a relay server to exchange messages between two peers. Intercessor is initially designed as a signaling server for WebRTC. It is similar to SignalMaster.
 
-A *server* first connects to the Peerolator (the *relay*), and receives back a unique token that can be used by the *client(s)* to connect to the Peerolator. 
+A _server_ first connects to the Intercessor (the _relay_), and receives back a unique token that can be used by the _client(s)_ to connect to the Intercessor.
 
-* Server connection: wss://www.peerolator.com/server
-* Client connection: wss://www.peerolator.com/client/SERVER_ID
+- Server connection: wss://www.somehost.com/server
+- Client connection: wss://www.somehost.com/client/SERVER_ID
+
+## Logging
+
+Log level can be specified as an environmnt variable such as:
+
+```console
+RUST_LOG=trace cargo run
+```
 
 ## Protocol
 
@@ -35,13 +43,13 @@ Messages sent from the relay have the following format:
 
 Where:
 
-* PEER_ID (string): The unique identifier of the peer.
-* MESSAGE_TYPE (string): The type of content of the message. Either 'HELLO', 'PEER_JOINED', "PEER_GONE", or application specific.
-* MESSAGE (Object): The actual message content (HELLO, PEER_JOINED, PEER_GONE, or other message).
+- PEER_ID (string): The unique identifier of the peer.
+- MESSAGE_TYPE (string): The type of content of the message. Either 'HELLO', 'PEER_JOINED', "PEER_GONE", or application specific.
+- MESSAGE (Object): The actual message content (HELLO, PEER_JOINED, PEER_GONE, or other message).
 
 ### HELLO message
 
-When a peer connects to the Peerolator, it will receive a HELLO message with the following content:
+When a peer connects to the Intercessor, it will receive a HELLO message with the following content:
 
 ```json
 {
@@ -52,8 +60,8 @@ When a peer connects to the Peerolator, it will receive a HELLO message with the
 
 Where:
 
-* USER_ID (string): The unique ID attributed to the peer.
-* SERVER_INFO (string): Optional application specific information configured on the server.
+- USER_ID (string): The unique ID attributed to the peer.
+- SERVER_INFO (string): Optional application specific information configured on the server.
 
 ### PEER_JOINED message
 
@@ -67,7 +75,7 @@ This message is sent to a server when a new client connects using its server ID.
 
 Where:
 
-* USER_ID (string): The unique ID of the new client.
+- USER_ID (string): The unique ID of the new client.
 
 ### PEER_GONE message
 
@@ -81,18 +89,18 @@ This message is sent to a peer when their peer leaves.
 
 Where:
 
-* USER_ID (string): The unique ID of the peer that has left.
+- USER_ID (string): The unique ID of the peer that has left.
 
 ## Future
 
-This project is a work in progress. Future work includes tht following:
+This project is a work in progress. Future work includes the following:
 
-* SSL Support
-* Command-line & file configuration
-* Server extra info in HELLO message
-* Passphrase for server logins
-* Replace UUID with something stronger and/or easier to remember
-* Client timeouts
-* Apply optional (configurable) schema validation on messages sent by the peers
-* Valgrind
-* Docker image
+- SSL Support
+- Command-line & file configuration
+- Server extra info in HELLO message
+- Passphrase for server logins
+- Replace UUID with something stronger and/or easier to remember
+- Client timeouts
+- Apply optional (configurable) schema validation on messages sent by the peers
+- Valgrind
+- Docker image
